@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <h1 style="font-family: Georgia, 'Times New Roman', serif; font-size: 28px; color:#6B2E44; margin: 0 0 20px 0; line-height: 1.2;">
+    Welcome to the team, {{ full_name }} 👋
+  </h1>
+
+  <p style="font-size: 15px; line-height: 1.6; color:#2B1F24; margin: 0 0 16px 0;">
+    You've been granted <strong style="color: #C76B84;">{{ role_label }}</strong> access to <strong>{{ brand_name }}</strong>'s admin dashboard.
+  </p>
+
+  <p style="font-size: 15px; line-height: 1.6; color: rgba(43, 31, 36, 0.75); margin: 0 0 28px 0;">
+    From here you can manage products, curate collections, update badges, and preview the storefront in real time.
+  </p>
+
+  <!-- Credentials box -->
+  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color: #FDF2F4; border-radius: 14px; padding: 24px; margin: 0 0 28px 0;">
+    <tr>
+      <td>
+        <p style="font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: #C76B84; font-weight: 600; margin: 0 0 12px 0;">
+          Your login credentials
+        </p>
+        <p style="font-size: 14px; color: #6B2E44; margin: 0 0 8px 0;">
+          <strong>Email:</strong> {{ email }}
+        </p>
+        <p style="font-size: 14px; color: #6B2E44; margin: 0;">
+          <strong>Password:</strong> <code style="background-color: rgba(107, 46, 68, 0.08); padding: 3px 8px; border-radius: 6px; font-family: Menlo, Consolas, monospace; font-size: 13px;">{{ password }}</code>
+        </p>
+      </td>
+    </tr>
+  </table>
+
+  <p style="font-size: 13px; color: rgba(43, 31, 36, 0.65); line-height: 1.5; margin: 0 0 28px 0;">
+    ⚠️ For your security, please log in and change your password right away.
+  </p>
+
+  <!-- CTA -->
+  <table role="presentation" cellpadding="0" cellspacing="0">
+    <tr>
+      <td style="background-color: #6B2E44; border-radius: 999px; padding: 0;">
+        <a href="{{ login_url }}" style="display: inline-block; padding: 14px 32px; font-size: 14px; color: #FFF9F5; text-decoration: none; font-weight: 500;">
+          Log in to your account →
+        </a>
+      </td>
+    </tr>
+  </table>
+
+  <p style="font-size: 12px; color: rgba(43, 31, 36, 0.5); margin: 32px 0 0 0;">
+    If the button doesn't work, copy this link into your browser:<br>
+    <span style="color: #C76B84; word-break: break-all;">{{ login_url }}</span>
+  </p>
+{% endblock %}
