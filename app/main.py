@@ -37,6 +37,7 @@ app.include_router(admin.router)
 app.include_router(users.router)
 app.include_router(checkout.router)
 app.include_router(orders.router)
+app.include_router(orders.public_router)
 
 
 @app.get("/")
