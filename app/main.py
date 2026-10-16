@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from .config import settings
 from .database import connect_to_mongo, close_mongo_connection
 from .services.auth import seed_super_admin
-from .routers import products, admin, checkout, auth, users
+from .routers import products, admin, checkout, auth, users, orders
 
 
 @asynccontextmanager
@@ -18,7 +18,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Curation by Sarrie — Backend",
-    version="0.2.0",
+    version="0.3.0",
     lifespan=lifespan,
 )
 
@@ -36,6 +36,7 @@ app.include_router(products.router)
 app.include_router(admin.router)
 app.include_router(users.router)
 app.include_router(checkout.router)
+app.include_router(orders.router)
 
 
 @app.get("/")
@@ -43,7 +44,7 @@ async def root():
     return {
         "name": "Curation by Sarrie API",
         "status": "running",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "docs": "/docs",
     }
 

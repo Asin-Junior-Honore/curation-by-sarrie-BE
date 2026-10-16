@@ -35,9 +35,37 @@ class Settings(BaseSettings):
     smtp_from_name: str = "Curation by Sarrie"
     admin_panel_url: str = "http://localhost:3000/admin/login"
 
+    # Paystack
+    paystack_secret_key: str = ""
+    paystack_public_key: str = ""
+    paystack_base_url: str = "https://api.paystack.co"
+
+    # Business info
+    business_name: str = "Curation by Sarrie"
+    business_address: str = "Lagos, Nigeria"
+    business_phone: str = ""
+    business_email: str = ""
+    business_whatsapp: str = ""
+
+    # Frontend URLs
+    frontend_url: str = "http://localhost:3000"
+    checkout_success_path: str = "/checkout/success"
+    checkout_failed_path: str = "/checkout/failed"
+
+    # Delivery
+    delivery_fee_kobo: int = 500000  # ₦5,000
+
     @property
     def cors_origins_list(self) -> List[str]:
         return [o.strip() for o in self.cors_origins.split(",")]
+
+    @property
+    def checkout_success_url(self) -> str:
+        return f"{self.frontend_url}{self.checkout_success_path}"
+
+    @property
+    def checkout_failed_url(self) -> str:
+        return f"{self.frontend_url}{self.checkout_failed_path}"
 
     class Config:
         env_file = ".env"
