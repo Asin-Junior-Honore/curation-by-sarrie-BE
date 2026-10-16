@@ -10,6 +10,10 @@ from ..models.order import (
     CheckoutInitializeResponse,
     OrderResponse,
 )
+from ..services.email import (
+    send_order_confirmation,
+    send_admin_new_order_alert,
+)
 from ..services.paystack import paystack_client
 from ..services.orders import (
     create_order,
@@ -51,7 +55,6 @@ async def initialize_checkout(payload: OrderCreate):
             },
         )
     except Exception as e:
-        # Mark order as failed if Paystack init failed
         await update_order_payment(
             reference=reference,
             status="failed",
@@ -93,13 +96,15 @@ async def verify_checkout(reference: str):
     Called by the frontend on the success page.
     Verifies with Paystack and returns current order state.
     """
-    # Check local order exists
     order = await get_order_by_reference(reference)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    # If already paid, return immediately (idempotency)
-    if order.get("payment", {}).get("status") == "success":
+    # Capture current status for idempotency checks
+    current_payment_status = order.get("payment", {}).get("status")
+
+    # If already paid, return immediately (idempotency — no duplicate emails)
+    if current_payment_status == "success":
         order["id"] = str(order["_id"])
         del order["_id"]
         return {"status": "success", "order": order}
@@ -135,6 +140,14 @@ async def verify_checkout(reference: str):
         new_order_status="paid" if is_success else "failed",
     )
 
+    # Fire emails only if this is a NEW success
+    if updated and is_success and current_payment_status != "success":
+        try:
+            await send_order_confirmation(updated)
+            await send_admin_new_order_alert(updated)
+        except Exception as e:
+            print(f"⚠️  Verify email failed: {e}")
+
     if updated:
         updated["id"] = str(updated["_id"])
         del updated["_id"]
@@ -153,14 +166,12 @@ async def paystack_webhook(request: Request):
     Verifies HMAC-SHA512 signature before processing.
     Uses idempotency to prevent duplicate processing.
     """
-    # Get raw body + signature
     raw_body = await request.body()
     signature = request.headers.get("x-paystack-signature", "")
 
     if not signature:
         raise HTTPException(status_code=400, detail="Missing signature")
 
-    # Compute expected signature
     expected = hmac.new(
         settings.paystack_secret_key.encode("utf-8"),
         raw_body,
@@ -168,10 +179,8 @@ async def paystack_webhook(request: Request):
     ).hexdigest()
 
     if not hmac.compare_digest(expected, signature):
-        # Invalid signature — reject immediately
         raise HTTPException(status_code=401, detail="Invalid signature")
 
-    # Parse event
     try:
         event = await request.json()
     except Exception:
@@ -184,16 +193,13 @@ async def paystack_webhook(request: Request):
     if not reference:
         return JSONResponse({"status": "ignored", "reason": "no reference"})
 
-    # Fetch order
     order = await get_order_by_reference(reference)
     if not order:
-        # Order not found — probably from a different environment
         return JSONResponse({"status": "ignored", "reason": "order not found"})
 
-    # ─── Idempotency check ──────────────────────────────
-    # If payment status already matches, skip
     current_payment_status = order.get("payment", {}).get("status")
 
+    # ─── Charge success ─────────────────────────────────
     if event_type == "charge.success":
         if current_payment_status == "success":
             return JSONResponse({"status": "already_processed"})
@@ -207,7 +213,7 @@ async def paystack_webhook(request: Request):
             else None
         )
 
-        await update_order_payment(
+        updated = await update_order_payment(
             reference=reference,
             status="success",
             amount_paid=amount_paid,
@@ -217,12 +223,17 @@ async def paystack_webhook(request: Request):
             new_order_status="paid",
         )
 
-        # TODO: send confirmation email to customer
-        # TODO: send notification email to admin
-        # (wired in the email drop)
+        # Fire emails (non-blocking)
+        if updated:
+            try:
+                await send_order_confirmation(updated)
+                await send_admin_new_order_alert(updated)
+            except Exception as e:
+                print(f"⚠️  Webhook email failed: {e}")
 
         return JSONResponse({"status": "processed", "event": event_type})
 
+    # ─── Charge failed / abandoned ──────────────────────
     elif event_type in ("charge.failed", "charge.abandoned"):
         if current_payment_status == "failed":
             return JSONResponse({"status": "already_processed"})

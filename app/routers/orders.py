@@ -9,6 +9,12 @@ from ..services.orders import (
     update_order_status,
 )
 
+from ..services.email import (
+    send_order_in_transit,
+    send_order_delivered,
+)
+from ..services.orders import get_order_by_id  # if not already imported
+
 router = APIRouter(prefix="/api/admin/orders", tags=["admin-orders"])
 
 
@@ -47,6 +53,13 @@ async def admin_update_status(
     user: dict = Depends(require_admin),
 ):
     """Update order status (in_transit, delivered, completed, cancelled)."""
+    # Capture previous status
+    existing = await get_order_by_id(order_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Order not found")
+    previous_status = existing.get("status")
+
+    # Update
     updated = await update_order_status(
         order_id=order_id,
         new_status=payload.status,
@@ -56,8 +69,14 @@ async def admin_update_status(
     if not updated:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    # TODO: send status change emails (in_transit, delivered)
-    # wired in the email drop
+    # Fire emails on status transitions
+    try:
+        if payload.status == "in_transit" and previous_status != "in_transit":
+            await send_order_in_transit(updated)
+        elif payload.status == "delivered" and previous_status != "delivered":
+            await send_order_delivered(updated)
+    except Exception as e:
+        print(f"⚠️  Status email failed: {e}")
 
     updated["id"] = str(updated["_id"])
     del updated["_id"]

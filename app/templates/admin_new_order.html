@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1
+    style="font-family: Georgia, 'Times New Roman', serif; font-size: 28px; color:#6B2E44; margin: 0 0 16px 0; line-height: 1.2;">
+    🎉 New paid order
+</h1>
+
+<p style="font-size: 15px; line-height: 1.6; color:#2B1F24; margin: 0 0 24px 0;">
+    A new order just landed and payment is confirmed. Time to prepare it!
+</p>
+
+<!-- Summary -->
+<table role="presentation" cellpadding="0" cellspacing="0"
+    style="background-color:#FDF2F4; border-radius:12px; padding: 20px; margin: 24px 0; width: 100%;">
+    <tr>
+        <td style="padding: 6px 0;">
+            <span
+                style="font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase; color:#C76B84; font-weight: 600;">Order</span>
+        </td>
+        <td style="padding: 6px 0; text-align: right;">
+            <span style="font-family: Menlo, Consolas, monospace; font-size: 14px; color:#6B2E44; font-weight: 600;">{{
+                order_number }}</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 6px 0;">
+            <span
+                style="font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase; color:#C76B84; font-weight: 600;">Customer</span>
+        </td>
+        <td style="padding: 6px 0; text-align: right;">
+            <span style="font-size: 14px; color:#2B1F24;">{{ order.customer.full_name }}</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 6px 0;">
+            <span
+                style="font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase; color:#C76B84; font-weight: 600;">Phone</span>
+        </td>
+        <td style="padding: 6px 0; text-align: right;">
+            <span style="font-size: 14px; color:#2B1F24;">{{ order.customer.phone }}</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 6px 0;">
+            <span
+                style="font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase; color:#C76B84; font-weight: 600;">Total</span>
+        </td>
+        <td style="padding: 6px 0; text-align: right;">
+            <span style="font-size: 16px; color:#6B2E44; font-weight: 700;">{{ total_formatted }}</span>
+        </td>
+    </tr>
+</table>
+
+<!-- Items -->
+<p
+    style="font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color:#C76B84; font-weight: 600; margin: 24px 0 8px 0;">
+    Items to prepare
+</p>
+<ul style="font-size: 14px; color:#2B1F24; line-height: 1.7; padding-left: 20px; margin: 0 0 24px 0;">
+    {% for item in order.items %}
+    <li>{{ item.quantity }}× {{ item.name }}</li>
+    {% endfor %}
+</ul>
+
+<!-- CTA -->
+<table role="presentation" cellpadding="0" cellspacing="0">
+    <tr>
+        <td style="background-color: #6B2E44; border-radius: 999px; padding: 0;">
+            <a href="{{ admin_order_url }}"
+                style="display: inline-block; padding: 14px 32px; font-size: 14px; color: #FFF9F5; text-decoration: none; font-weight: 500;">
+                Open in Admin →
+            </a>
+        </td>
+    </tr>
+</table>
+{% endblock %}
