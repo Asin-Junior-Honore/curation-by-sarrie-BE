@@ -58,7 +58,7 @@
     Items to prepare
 </p>
 <ul style="font-size: 14px; color:#2B1F24; line-height: 1.7; padding-left: 20px; margin: 0 0 24px 0;">
-    {% for item in order.items %}
+    {% for item in order["items"] %}
     <li>{{ item.quantity }}× {{ item.name }}</li>
     {% endfor %}
 </ul>
