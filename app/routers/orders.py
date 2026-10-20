@@ -345,3 +345,239 @@ async def admin_top_products(
 
 def _naira(kobo: int) -> str:
     return f"₦{kobo / 100:,.2f}"
+
+
+# ─── Dashboard Extended Stats ───────────────────────────
+@router.get("/stats/dashboard")
+async def admin_dashboard_stats(user: dict = Depends(require_admin)):
+    """
+    Full dashboard data — all in one request.
+    Returns stat cards, revenue breakdown, low stock, sales channels.
+    """
+    from ..database import orders_collection, products_collection, users_collection
+
+    now = datetime.utcnow()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    orders = orders_collection()
+    products = products_collection()
+    users = users_collection()
+
+    # ─── Top stat cards ──────────────────────────────────
+    total_orders = await orders.count_documents({"payment.status": "success"})
+    orders_today = await orders.count_documents({
+        "payment.status": "success",
+        "created_at": {"$gte": today_start}
+    })
+
+    # Products sold (sum of item quantities)
+    pipeline_products_sold = [
+        {"$match": {"payment.status": "success"}},
+        {"$unwind": "$items"},
+        {"$group": {"_id": None, "count": {"$sum": "$items.quantity"}}},
+    ]
+    result = await orders.aggregate(pipeline_products_sold).to_list(1)
+    products_sold = result[0]["count"] if result else 0
+
+    # New customers this month
+    new_customers = await users.count_documents({
+        "role": {"$ne": "super_admin"},
+        "created_at": {"$gte": month_start}
+    })
+
+    # ─── Revenue breakdown ───────────────────────────────
+    pipeline_total = [
+        {"$match": {"payment.status": "success"}},
+        {"$group": {"_id": None, "total": {"$sum": "$total_kobo"}}},
+    ]
+    result = await orders.aggregate(pipeline_total).to_list(1)
+    total_revenue = result[0]["total"] if result else 0
+
+    # This month
+    pipeline_month = [
+        {"$match": {"payment.status": "success", "created_at": {"$gte": month_start}}},
+        {"$group": {"_id": None, "total": {"$sum": "$total_kobo"}}},
+    ]
+    result = await orders.aggregate(pipeline_month).to_list(1)
+    month_revenue = result[0]["total"] if result else 0
+
+    # Today
+    pipeline_today = [
+        {"$match": {"payment.status": "success", "created_at": {"$gte": today_start}}},
+        {"$group": {"_id": None, "total": {"$sum": "$total_kobo"}}},
+    ]
+    result = await orders.aggregate(pipeline_today).to_list(1)
+    today_revenue = result[0]["total"] if result else 0
+
+    # In transit orders (revenue "on the way")
+    pipeline_in_transit = [
+        {"$match": {"status": "in_transit", "payment.status": "success"}},
+        {"$group": {"_id": None, "total": {"$sum": "$total_kobo"}}},
+    ]
+    result = await orders.aggregate(pipeline_in_transit).to_list(1)
+    in_transit_revenue = result[0]["total"] if result else 0
+
+    # Delivered
+    pipeline_delivered = [
+        {"$match": {"status": "delivered", "payment.status": "success"}},
+        {"$group": {"_id": None, "total": {"$sum": "$total_kobo"}}},
+    ]
+    result = await orders.aggregate(pipeline_delivered).to_list(1)
+    delivered_revenue = result[0]["total"] if result else 0
+
+    # ─── Low stock products ──────────────────────────────
+    low_stock_cursor = products.find(
+        {
+            "bumpa.quantity": {"$lte": 5, "$gt": 0},
+            "editorial.is_hidden": {"$ne": True},
+            "bumpa.status": 1,
+        }
+    ).sort("bumpa.quantity", 1).limit(10)
+
+    low_stock = []
+    async for doc in low_stock_cursor:
+        low_stock.append({
+            "id": str(doc["_id"]),
+            "slug": doc["bumpa"]["slug"],
+            "name": doc["bumpa"]["name"],
+            "quantity": doc["bumpa"]["quantity"],
+            "image": doc["bumpa"].get("optimized_image_url") or doc["bumpa"].get("image_url"),
+        })
+
+    out_of_stock_count = await products.count_documents({
+        "bumpa.quantity": 0,
+        "editorial.is_hidden": {"$ne": True},
+        "bumpa.status": 1,
+    })
+
+    # ─── Sales channels ──────────────────────────────────
+    # We don't track channels yet, but split by payment channel
+    channel_pipeline = [
+        {"$match": {"payment.status": "success"}},
+        {"$group": {"_id": "$payment.channel", "count": {"$sum": 1}}},
+    ]
+    channels = {}
+    async for doc in orders.aggregate(channel_pipeline):
+        key = doc["_id"] or "unknown"
+        channels[key] = doc["count"]
+
+    # ─── Order status breakdown ──────────────────────────
+    status_pipeline = [
+        {"$group": {"_id": "$status", "count": {"$sum": 1}}},
+    ]
+    status_counts = {}
+    async for doc in orders.aggregate(status_pipeline):
+        status_counts[doc["_id"]] = doc["count"]
+
+    return {
+        "cards": {
+            "orders_total": total_orders,
+            "orders_today": orders_today,
+            "products_sold": products_sold,
+            "new_customers_month": new_customers,
+        },
+        "revenue": {
+            "total_kobo": total_revenue,
+            "total_formatted": _naira(total_revenue),
+            "month_kobo": month_revenue,
+            "month_formatted": _naira(month_revenue),
+            "today_kobo": today_revenue,
+            "today_formatted": _naira(today_revenue),
+            "in_transit_kobo": in_transit_revenue,
+            "in_transit_formatted": _naira(in_transit_revenue),
+            "delivered_kobo": delivered_revenue,
+            "delivered_formatted": _naira(delivered_revenue),
+        },
+        "low_stock": low_stock,
+        "out_of_stock_count": out_of_stock_count,
+        "channels": channels,
+        "order_status_breakdown": status_counts,
+    }
+
+
+@router.get("/stats/revenue-chart")
+async def admin_revenue_chart(
+    days: int = 30,
+    user: dict = Depends(require_admin),
+):
+    """Already exists — but let's make sure it uses the right filter."""
+    from ..database import orders_collection
+    from datetime import timedelta
+
+    now = datetime.utcnow()
+    start = now - timedelta(days=days - 1)
+    start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    pipeline = [
+        {"$match": {"payment.status": "success", "created_at": {"$gte": start}}},
+        {
+            "$group": {
+                "_id": {
+                    "$dateToString": {"format": "%Y-%m-%d", "date": "$created_at"}
+                },
+                "revenue_kobo": {"$sum": "$total_kobo"},
+                "orders": {"$sum": 1},
+            }
+        },
+        {"$sort": {"_id": 1}},
+    ]
+
+    results = {}
+    async for doc in orders_collection().aggregate(pipeline):
+        results[doc["_id"]] = doc
+
+    output = []
+    for i in range(days):
+        day = start + timedelta(days=i)
+        day_str = day.strftime("%Y-%m-%d")
+        if day_str in results:
+            output.append({
+                "date": day_str,
+                "revenue_kobo": results[day_str]["revenue_kobo"],
+                "orders": results[day_str]["orders"],
+            })
+        else:
+            output.append({"date": day_str, "revenue_kobo": 0, "orders": 0})
+
+    return {"days": days, "data": output}
+
+
+@router.get("/stats/top-products")
+async def admin_top_products(
+    limit: int = 5,
+    user: dict = Depends(require_admin),
+):
+    """Already exists — kept for compatibility."""
+    from ..database import orders_collection
+
+    pipeline = [
+        {"$match": {"payment.status": "success"}},
+        {"$unwind": "$items"},
+        {
+            "$group": {
+                "_id": "$items.product_id",
+                "name": {"$first": "$items.name"},
+                "image": {"$first": "$items.image"},
+                "slug": {"$first": "$items.slug"},
+                "units_sold": {"$sum": "$items.quantity"},
+                "revenue_kobo": {"$sum": "$items.subtotal"},
+            }
+        },
+        {"$sort": {"revenue_kobo": -1}},
+        {"$limit": limit},
+    ]
+
+    products = []
+    async for doc in orders_collection().aggregate(pipeline):
+        products.append({
+            "product_id": doc["_id"],
+            "name": doc["name"],
+            "image": doc["image"],
+            "slug": doc["slug"],
+            "units_sold": doc["units_sold"],
+            "revenue_kobo": doc["revenue_kobo"],
+            "revenue_formatted": _naira(doc["revenue_kobo"]),
+        })
+
+    return {"products": products}
