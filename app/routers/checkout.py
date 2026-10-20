@@ -113,18 +113,24 @@ async def verify_checkout(reference: str):
     """
     Called by the frontend on the success page.
     Verifies with Paystack and returns current order state.
+    Fires confirmation emails EXACTLY ONCE via atomic DB flag.
     """
+    from ..services.orders import mark_confirmation_emails_sent
+
     order = await get_order_by_reference(reference)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    current_payment_status = order.get("payment", {}).get("status")
-
-    if current_payment_status == "success":
+    # If already confirmed & emails sent, return immediately
+    if (
+        order.get("payment", {}).get("status") == "success"
+        and order.get("emails_sent_at") is not None
+    ):
         order["id"] = str(order["_id"])
         del order["_id"]
         return {"status": "success", "order": order}
 
+    # Verify with Paystack
     try:
         ps_data = await paystack_client.verify_transaction(reference)
     except Exception as e:
@@ -153,12 +159,21 @@ async def verify_checkout(reference: str):
         new_order_status="paid" if is_success else "failed",
     )
 
-    if updated and is_success and current_payment_status != "success":
-        try:
-            await send_order_confirmation(updated)
-            await send_admin_new_order_alert(updated)
-        except Exception as e:
-            print(f"⚠️  Verify email failed: {e}")
+    # ─── Fire emails exactly once ───────────────────
+    if updated and is_success:
+        was_first = await mark_confirmation_emails_sent(reference)
+        if was_first:
+            print(f"📧 [verify] FIRING confirmation emails for {reference}")
+            try:
+                safe_order = _sanitize_for_email(updated)
+                await send_order_confirmation(safe_order)
+                await send_admin_new_order_alert(safe_order)
+            except Exception as e:
+                import traceback
+                print(f"⚠️  Verify email failed: {e}")
+                traceback.print_exc()
+        else:
+            print(f"📧 [verify] Emails already sent for {reference} — skipping")
 
     if updated:
         updated["id"] = str(updated["_id"])
@@ -169,6 +184,124 @@ async def verify_checkout(reference: str):
         "order": updated,
     }
 
+
+# ─── Paystack Webhook ───────────────────────────────────
+@router.post("/webhook/paystack")
+async def paystack_webhook(request: Request):
+    """
+    Receives Paystack webhook events.
+    Verifies HMAC-SHA512 signature before processing.
+    Fires confirmation emails EXACTLY ONCE via atomic DB flag.
+    """
+    from ..services.orders import mark_confirmation_emails_sent
+
+    raw_body = await request.body()
+    signature = request.headers.get("x-paystack-signature", "")
+
+    if not signature:
+        raise HTTPException(status_code=400, detail="Missing signature")
+
+    expected = hmac.new(
+        settings.paystack_secret_key.encode("utf-8"),
+        raw_body,
+        hashlib.sha512,
+    ).hexdigest()
+
+    if not hmac.compare_digest(expected, signature):
+        raise HTTPException(status_code=401, detail="Invalid signature")
+
+    try:
+        event = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    event_type = event.get("event")
+    data = event.get("data", {})
+    reference = data.get("reference")
+
+    if not reference:
+        return JSONResponse({"status": "ignored", "reason": "no reference"})
+
+    order = await get_order_by_reference(reference)
+    if not order:
+        return JSONResponse({"status": "ignored", "reason": "order not found"})
+
+    # ─── Charge success ──────────────────────────────
+    if event_type == "charge.success":
+        amount_paid = int(data.get("amount", 0))
+        channel = data.get("channel")
+        paid_at_raw = data.get("paid_at")
+        paid_at = (
+            datetime.fromisoformat(paid_at_raw.replace("Z", "+00:00"))
+            if paid_at_raw
+            else None
+        )
+
+        updated = await update_order_payment(
+            reference=reference,
+            status="success",
+            amount_paid=amount_paid,
+            channel=channel,
+            paid_at=paid_at,
+            paystack_response=data,
+            new_order_status="paid",
+        )
+
+        # ─── Fire emails exactly once ───────────────
+        if updated:
+            was_first = await mark_confirmation_emails_sent(reference)
+            if was_first:
+                print(f"📧 [webhook] FIRING confirmation emails for {reference}")
+                try:
+                    safe_order = _sanitize_for_email(updated)
+                    await send_order_confirmation(safe_order)
+                    await send_admin_new_order_alert(safe_order)
+                except Exception as e:
+                    import traceback
+                    print(f"⚠️  Webhook email failed: {e}")
+                    traceback.print_exc()
+            else:
+                print(f"📧 [webhook] Emails already sent for {reference} — skipping")
+
+        return JSONResponse({"status": "processed", "event": event_type})
+
+    # ─── Charge failed / abandoned ───────────────────
+    elif event_type in ("charge.failed", "charge.abandoned"):
+        await update_order_payment(
+            reference=reference,
+            status="failed",
+            amount_paid=0,
+            channel=data.get("channel"),
+            paid_at=None,
+            paystack_response=data,
+            new_order_status="failed",
+        )
+        return JSONResponse({"status": "processed", "event": event_type})
+
+    return JSONResponse({"status": "ignored", "event": event_type})
+
+
+# ─── Sanitize helper ────────────────────────────────────
+def _sanitize_for_email(order: dict) -> dict:
+    """
+    Convert MongoDB types (ObjectId, datetime) to JSON-safe
+    before passing to Jinja2 email templates.
+    """
+    import copy
+    from bson import ObjectId
+
+    def convert(obj):
+        if isinstance(obj, dict):
+            return {k: convert(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [convert(v) for v in obj]
+        if isinstance(obj, ObjectId):
+            return str(obj)
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return obj
+
+    return convert(copy.deepcopy(order))
 
 # ─── Paystack Webhook ───────────────────────────────────
 @router.post("/webhook/paystack")

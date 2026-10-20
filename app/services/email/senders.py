@@ -10,10 +10,6 @@ async def send_email(
     template_name: str,
     context: dict | None = None,
 ) -> bool:
-    """
-    Generic email sender — used anywhere.
-    Kept for backwards compat with existing code (admin_invite).
-    """
     if context is None:
         context = {}
     try:
@@ -24,7 +20,7 @@ async def send_email(
         return False
 
 
-# ─── Order-related ──────────────────────────────────────
+# ─── Order lifecycle ────────────────────────────────────
 async def send_order_confirmation(order: dict) -> bool:
     """Sent to customer when payment succeeds."""
     return await send_email(
@@ -40,6 +36,22 @@ async def send_order_confirmation(order: dict) -> bool:
             "total_formatted": _naira(order["total_kobo"]),
             "subtotal_formatted": _naira(order["subtotal_kobo"]),
             "delivery_fee_formatted": _naira(order["delivery_fee_kobo"]),
+        },
+    )
+
+
+async def send_order_preparing(order: dict) -> bool:
+    """Sent when admin marks order as preparing."""
+    return await send_email(
+        to_email=order["customer"]["email"],
+        subject=f"We're preparing your gift — {order['order_number']} 🎁",
+        template_name="order_preparing.html",
+        context={
+            "order": order,
+            "order_number": order["order_number"],
+            "customer_name": order["customer"]["full_name"],
+            "customer_first_name": order["customer"]["full_name"].split()[0],
+            "tracking_url": f"{settings.frontend_url}/track/{order['order_number']}",
         },
     )
 
@@ -78,6 +90,15 @@ async def send_order_delivered(order: dict) -> bool:
 
 async def send_admin_new_order_alert(order: dict) -> bool:
     """Sent to admin when a payment succeeds."""
+    # Handle ObjectId → string safely
+    order_id = order.get("_id") or order.get("id") or ""
+    if order_id:
+        order_id_str = str(order_id)
+    else:
+        order_id_str = ""
+
+    admin_url_base = settings.admin_panel_url.replace("/login", "/orders")
+
     return await send_email(
         to_email=settings.super_admin_email,
         subject=f"🎉 New order — {order['order_number']} (₦{order['total_kobo']/100:,.0f})",
@@ -85,12 +106,10 @@ async def send_admin_new_order_alert(order: dict) -> bool:
         context={
             "order": order,
             "order_number": order["order_number"],
-            "admin_order_url": f"{settings.admin_panel_url.replace('/login', '/orders')}/{order['_id']}",
+            "admin_order_url": f"{admin_url_base}/{order_id_str}" if order_id_str else admin_url_base,
             "total_formatted": _naira(order["total_kobo"]),
         },
     )
-
-
 # ─── Helpers ────────────────────────────────────────────
 def _naira(kobo: int) -> str:
     return f"₦{kobo / 100:,.2f}"

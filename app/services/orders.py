@@ -277,3 +277,25 @@ async def list_orders(
         "per_page": limit,
         "pages": (total + limit - 1) // limit if total else 0,
     }
+
+
+
+async def mark_confirmation_emails_sent(reference: str) -> bool:
+    """
+    Atomically mark that confirmation emails were sent.
+    Returns True if this call was the FIRST to mark it (i.e., we should send emails).
+    Returns False if emails were already sent by a previous call.
+    """
+    result = await orders_collection().update_one(
+        {
+            "payment.reference": reference,
+            "emails_sent_at": None,   # only update if not yet sent
+        },
+        {
+            "$set": {
+                "emails_sent_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow(),
+            }
+        },
+    )
+    return result.modified_count == 1

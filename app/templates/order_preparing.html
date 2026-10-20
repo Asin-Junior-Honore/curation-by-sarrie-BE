@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1
+    style="font-family: Georgia, 'Times New Roman', serif; font-size: 28px; color:#6B2E44; margin: 0 0 16px 0; line-height: 1.2;">
+    We're preparing your gift, {{ customer_first_name }} 🎁
+</h1>
+
+<p style="font-size: 15px; line-height: 1.6; color:#2B1F24; margin: 0 0 24px 0;">
+    Great news — your order <strong>{{ order_number }}</strong> is being packed with care by our team. Every gift is
+    wrapped by hand with a handwritten note, ready to make someone smile.
+</p>
+
+<!-- Preparing badge -->
+<table role="presentation" cellpadding="0" cellspacing="0"
+    style="background-color:#FDF2F4; border-radius:12px; padding: 20px; margin: 24px 0;">
+    <tr>
+        <td style="text-align: center;">
+            <div
+                style="display: inline-block; width: 48px; height: 48px; border-radius: 999px; background-color: #F8C8D1; line-height: 48px; text-align: center; margin-bottom: 12px; font-size: 22px;">
+                🎁
+            </div>
+            <p style="font-size: 16px; font-weight: 600; color:#6B2E44; margin: 8px 0 4px 0;">
+                Preparing
+            </p>
+            <p style="font-size: 13px; color: rgba(43, 31, 36, 0.7); margin: 0;">
+                Wrapping & packing with care
+            </p>
+        </td>
+    </tr>
+</table>
+
+<!-- Items being prepared -->
+<p
+    style="font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color:#C76B84; font-weight: 600; margin: 24px 0 12px 0;">
+    What we're preparing
+</p>
+
+<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-bottom: 24px;">
+    {% for item in order["items"] %}
+    <tr>
+        <td style="padding: 10px 0; border-bottom: 1px solid rgba(248, 200, 209, 0.5);">
+            <p style="font-size: 14px; color:#6B2E44; margin: 0 0 2px 0; font-weight: 500;">
+                {{ item["quantity"] }}× {{ item["name"] }}
+            </p>
+            {% if item.get("personalization") %}
+            <p style="font-size: 12px; color: rgba(43, 31, 36, 0.6); margin: 0; font-style: italic;">
+                {% if item["personalization"].get("name") %}
+                Personalized for: <strong>{{ item["personalization"]["name"] }}</strong>
+                {% endif %}
+                {% if item["personalization"].get("message") %}
+                <br>"{{ item["personalization"]["message"] }}"
+                {% endif %}
+            </p>
+            {% endif %}
+        </td>
+    </tr>
+    {% endfor %}
+</table>
+
+<!-- What to expect -->
+<p
+    style="font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color:#C76B84; font-weight: 600; margin: 24px 0 8px 0;">
+    What happens next
+</p>
+<ul style="font-size: 14px; color:#2B1F24; line-height: 1.7; padding-left: 20px; margin: 0 0 24px 0;">
+    <li>Our team finishes packing your gift with care</li>
+    <li>We dispatch it to our rider or courier</li>
+    <li>You'll get another email when it's on the way</li>
+</ul>
+
+<!-- CTA -->
+<table role="presentation" cellpadding="0" cellspacing="0">
+    <tr>
+        <td style="background-color: #6B2E44; border-radius: 999px; padding: 0;">
+            <a href="{{ tracking_url }}"
+                style="display: inline-block; padding: 14px 32px; font-size: 14px; color: #FFF9F5; text-decoration: none; font-weight: 500;">
+                Track Order →
+            </a>
+        </td>
+    </tr>
+</table>
+
+<p style="font-size: 13px; color: rgba(43, 31, 36, 0.7); line-height: 1.6; margin: 28px 0 0 0;">
+    Questions? Reply to this email or WhatsApp us at <strong>{{ business_whatsapp }}</strong>.
+</p>
+{% endblock %}

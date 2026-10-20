@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
 
     # Super admin
-    super_admin_email: str = "admin@curationbysarrie.com"
+    super_admin_email: str = "asinhonore823@gmail.com"
     super_admin_password: str = "ChangeMe123!"
     super_admin_name: str = "Super Admin"
 

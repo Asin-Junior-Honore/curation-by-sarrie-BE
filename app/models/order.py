@@ -96,6 +96,7 @@ class OrderInDB(OrderBase):
     admin_notes: Optional[str] = None
     internal_notes: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    emails_sent_at: Optional[datetime] = None   # ← new
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
