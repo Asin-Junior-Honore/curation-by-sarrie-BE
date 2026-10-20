@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from .config import settings
 from .database import connect_to_mongo, close_mongo_connection
 from .services.auth import seed_super_admin
-from .routers import products, admin, checkout, auth, users, orders
+from .routers import products, admin, checkout, auth, users, orders,shipping
 
 
 @asynccontextmanager
@@ -38,6 +38,8 @@ app.include_router(users.router)
 app.include_router(checkout.router)
 app.include_router(orders.router)
 app.include_router(orders.public_router)
+app.include_router(shipping.public_router)
+app.include_router(shipping.router)
 
 
 @app.get("/")

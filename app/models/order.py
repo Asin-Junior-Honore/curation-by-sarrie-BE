@@ -45,6 +45,8 @@ class DeliveryInfo(BaseModel):
     country: str = "Nigeria"
     landmark: Optional[str] = None
     delivery_instructions: Optional[str] = None
+    shipping_zone_id: Optional[str] = None       # ← new
+    shipping_zone_name: Optional[str] = None     # ← new
 
 
 class PaymentInfo(BaseModel):

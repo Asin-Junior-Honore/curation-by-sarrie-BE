@@ -3,8 +3,10 @@ import hashlib
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import JSONResponse
+from bson import ObjectId
 
 from ..config import settings
+from ..database import shipping_zones_collection
 from ..models.order import (
     OrderCreate,
     CheckoutInitializeResponse,
@@ -32,8 +34,24 @@ async def initialize_checkout(payload: OrderCreate):
     Create an order and initialize Paystack transaction.
     Frontend redirects user to authorization_url.
     """
+    # ─── Look up shipping fee ────────────────────────
+    shipping_fee_kobo = settings.delivery_fee_kobo  # fallback default
+
+    if payload.delivery.shipping_zone_id:
+        try:
+            zone = await shipping_zones_collection().find_one(
+                {"_id": ObjectId(payload.delivery.shipping_zone_id)}
+            )
+            if zone and zone.get("is_active"):
+                shipping_fee_kobo = zone["rate_kobo"]
+        except Exception as e:
+            print(f"⚠️  Shipping zone lookup failed: {e}")
+
+    # ─── Create order with override fee ──────────────
     try:
-        order, reference = await create_order(payload)
+        order, reference = await create_order(
+            payload, delivery_fee_kobo_override=shipping_fee_kobo
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -41,7 +59,7 @@ async def initialize_checkout(payload: OrderCreate):
             status_code=500, detail=f"Failed to create order: {str(e)}"
         )
 
-    # Initialize Paystack
+    # ─── Initialize Paystack ─────────────────────────
     try:
         ps_data = await paystack_client.initialize_transaction(
             email=payload.customer.email,
@@ -68,7 +86,7 @@ async def initialize_checkout(payload: OrderCreate):
             detail=f"Payment initialization failed: {str(e)}",
         )
 
-    # Save Paystack response data to order
+    # ─── Save Paystack response data to order ───────
     await update_order_payment(
         reference=reference,
         status="pending",
@@ -89,7 +107,7 @@ async def initialize_checkout(payload: OrderCreate):
     )
 
 
-# ─── Verify payment (user returns from Paystack) ────────
+# ─── Verify payment ─────────────────────────────────────
 @router.get("/verify/{reference}")
 async def verify_checkout(reference: str):
     """
@@ -100,16 +118,13 @@ async def verify_checkout(reference: str):
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    # Capture current status for idempotency checks
     current_payment_status = order.get("payment", {}).get("status")
 
-    # If already paid, return immediately (idempotency — no duplicate emails)
     if current_payment_status == "success":
         order["id"] = str(order["_id"])
         del order["_id"]
         return {"status": "success", "order": order}
 
-    # Verify with Paystack
     try:
         ps_data = await paystack_client.verify_transaction(reference)
     except Exception as e:
@@ -117,8 +132,7 @@ async def verify_checkout(reference: str):
             status_code=502, detail=f"Verification failed: {str(e)}"
         )
 
-    # Map Paystack status → our status
-    ps_status = ps_data.get("status")  # "success" | "failed" | "abandoned"
+    ps_status = ps_data.get("status")
     is_success = ps_status == "success"
     amount_paid = int(ps_data.get("amount", 0))
     channel = ps_data.get("channel")
@@ -129,7 +143,6 @@ async def verify_checkout(reference: str):
         else None
     )
 
-    # Update order
     updated = await update_order_payment(
         reference=reference,
         status="success" if is_success else "failed",
@@ -140,7 +153,6 @@ async def verify_checkout(reference: str):
         new_order_status="paid" if is_success else "failed",
     )
 
-    # Fire emails only if this is a NEW success
     if updated and is_success and current_payment_status != "success":
         try:
             await send_order_confirmation(updated)
@@ -164,7 +176,6 @@ async def paystack_webhook(request: Request):
     """
     Receives Paystack webhook events.
     Verifies HMAC-SHA512 signature before processing.
-    Uses idempotency to prevent duplicate processing.
     """
     raw_body = await request.body()
     signature = request.headers.get("x-paystack-signature", "")
@@ -199,7 +210,7 @@ async def paystack_webhook(request: Request):
 
     current_payment_status = order.get("payment", {}).get("status")
 
-    # ─── Charge success ─────────────────────────────────
+    # ─── Charge success ──────────────────────────────
     if event_type == "charge.success":
         if current_payment_status == "success":
             return JSONResponse({"status": "already_processed"})
@@ -223,7 +234,6 @@ async def paystack_webhook(request: Request):
             new_order_status="paid",
         )
 
-        # Fire emails (non-blocking)
         if updated:
             try:
                 await send_order_confirmation(updated)
@@ -233,7 +243,7 @@ async def paystack_webhook(request: Request):
 
         return JSONResponse({"status": "processed", "event": event_type})
 
-    # ─── Charge failed / abandoned ──────────────────────
+    # ─── Charge failed / abandoned ───────────────────
     elif event_type in ("charge.failed", "charge.abandoned"):
         if current_payment_status == "failed":
             return JSONResponse({"status": "already_processed"})

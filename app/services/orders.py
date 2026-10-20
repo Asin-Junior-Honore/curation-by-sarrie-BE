@@ -18,7 +18,7 @@ from ..models.order import (
 def generate_order_number() -> str:
     """Human-friendly order number: CBS-YYMMDD-XXXX"""
     today = datetime.utcnow().strftime("%y%m%d")
-    suffix = secrets.token_hex(2).upper()  # 4 hex chars
+    suffix = secrets.token_hex(2).upper()
     return f"CBS-{today}-{suffix}"
 
 
@@ -65,7 +65,6 @@ async def build_order_items(raw_items: list) -> list[OrderItem]:
                 f"Only {bumpa.get('quantity')} available."
             )
 
-        # Convert price to kobo (Bumpa returns price as float in Naira)
         price_kobo = int(round(float(bumpa["price"]) * 100))
 
         items.append(
@@ -89,15 +88,25 @@ async def build_order_items(raw_items: list) -> list[OrderItem]:
     return items
 
 
-async def create_order(payload: OrderCreate) -> tuple[OrderInDB, str]:
+async def create_order(
+    payload: OrderCreate,
+    delivery_fee_kobo_override: Optional[int] = None,
+) -> tuple[OrderInDB, str]:
     """
     Build the order document (before payment).
     Returns (order_doc, reference).
+
+    delivery_fee_kobo_override: if provided, uses this instead of the
+    global settings default (used for shipping zone rates).
     """
     items = await build_order_items(payload.items)
 
     subtotal_kobo = sum(i.subtotal for i in items)
-    delivery_fee_kobo = settings.delivery_fee_kobo
+    delivery_fee_kobo = (
+        delivery_fee_kobo_override
+        if delivery_fee_kobo_override is not None
+        else settings.delivery_fee_kobo
+    )
     total_kobo = subtotal_kobo + delivery_fee_kobo
 
     reference = generate_reference()
@@ -159,7 +168,7 @@ async def get_order_by_number(order_number: str) -> Optional[dict]:
 
 async def update_order_payment(
     reference: str,
-    status: str,  # success | failed
+    status: str,
     amount_paid: int,
     channel: Optional[str],
     paid_at: Optional[datetime],

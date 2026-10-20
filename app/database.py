@@ -42,5 +42,8 @@ def users_collection():
     return db["users"]
 
 
+def shipping_zones_collection():
+    return db["shipping_zones"]
+
 def refresh_tokens_collection():
     return db["refresh_tokens"]
